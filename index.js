@@ -42,7 +42,8 @@ function Navigation(options) {
         defaultFavicons: false,
         newTabCallback: null,
         changeTabCallback: null,
-        newTabParams: null
+        newTabParams: null,
+        getSrc: function () {}
     };
     options = options ? Object.assign(defaults,options) : defaults;
     /**
@@ -52,6 +53,7 @@ function Navigation(options) {
     const NAV = this;
     this.newTabCallback = options.newTabCallback;
     this.changeTabCallback = options.changeTabCallback;
+    this.getSrc = options.getSrc;
     this.SESSION_ID = 1;
     if (options.defaultFavicons) {
         this.TAB_ICON = "default";
@@ -107,8 +109,8 @@ function Navigation(options) {
         var session = $('.nav-views-view[data-session="' + sessionID + '"]')[0];
         (NAV.changeTabCallback || (() => {}))(session);
         NAV._updateUrl(session.getURL());
-        NAV._updateCtrls();        
-        
+        NAV._updateCtrls();
+
         //
         // close tab and view
         //
@@ -152,7 +154,7 @@ function Navigation(options) {
     // go back
     //
     $('#nav-body-ctrls').on('click', '#nav-ctrls-back', function () {
-        NAV.back();
+      NAV.back();
     });
     //
     // go forward
@@ -184,25 +186,25 @@ function Navigation(options) {
     //
     // load or search address on enter / shift+enter
     //
-    $('#nav-ctrls-url').keyup(function (e) {
-        if (e.keyCode == 13) {
-            if (e.shiftKey) {
+$('#nav-ctrls-url').keyup(function (e) {
+    if (e.keyCode == 13) {
+        if (e.shiftKey) {
+            NAV.newTab(this.value, {
+                close: options.closableTabs,
+                icon: NAV.TAB_ICON
+            });
+        } else {
+            if ($('.nav-tabs-tab').length) {
+                NAV.changeTab(this.value);
+            } else {
                 NAV.newTab(this.value, {
                     close: options.closableTabs,
                     icon: NAV.TAB_ICON
                 });
-            } else {
-                if ($('.nav-tabs-tab').length) {
-                    NAV.changeTab(this.value);
-                } else {
-                    NAV.newTab(this.value, {
-                        close: options.closableTabs,
-                        icon: NAV.TAB_ICON
-                    });
-                }
             }
         }
-    });
+    }
+});
     /**
      * FUNCTIONS
      */
@@ -231,12 +233,12 @@ function Navigation(options) {
             this._loading();
         } else {
             this._stopLoading();
-        }         
+        }
         if (webview.getAttribute('data-readonly') == 'true') {
             $('#nav-ctrls-url').attr('readonly', 'readonly');
         } else {
             $('#nav-ctrls-url').removeAttr('readonly');
-        }        
+        }
 
     } //:_updateCtrls()
     //
@@ -269,16 +271,25 @@ function Navigation(options) {
     // auto add http protocol to url input or do a search
     //
     this._purifyUrl = function (url) {
+      return new Promise(async ok => {
         if (urlRegex({
                 strict: false,
                 exact: true
             }).test(url)) {
             url = (url.match(/^https?:\/\/.*/)) ? url : 'http://' + url;
+            ok(url);
         } else {
+          if(url.slice(0, 7) == 'tbtc://') {
+            const newURL = await NAV.getSrc(url);
+            ok(newURL);
+          }
             url = (!url.match(/^[a-zA-Z]+:\/\//)) ? 'https://www.google.com/search?q=' + url.replace(' ', '+') : url;
+            ok(url);
         }
-        return url;
-    } //:_purifyUrl()
+      });
+    }
+
+
     //
     // set the color of the tab based on the favicon
     //
@@ -374,6 +385,14 @@ function Navigation(options) {
                 );
             }
         });
+        webview[0].addEventListener("will-navigate", async (event) => {
+            const url = event.url;
+            if(url.slice(0, 7) == 'tbtc://') {
+              webview[0].stop();
+              const newURL = await NAV.getSrc(url);
+              webview[0].src = newURL;
+            }
+        });
         return webview[0];
     } //:_addEvents()
     //
@@ -411,7 +430,7 @@ function Navigation(options) {
 //
 // create a new tab and view with an url and optional id
 //
-Navigation.prototype.newTab = function (url, options) {
+Navigation.prototype.newTab = async function (url, options) {
     var defaults = {
         id: null, // null, 'yourIdHere'
         node: false,
@@ -422,7 +441,8 @@ Navigation.prototype.newTab = function (url, options) {
         readonlyUrl: false,
         contextMenu: true,
         newTabCallback: this.newTabCallback,
-        changeTabCallback: this.changeTabCallback
+        changeTabCallback: this.changeTabCallback,
+        getSrc: this.getSrc
     }
     options = options ? Object.assign(defaults,options) : defaults;
     if(typeof options.newTabCallback === "function"){
@@ -479,9 +499,9 @@ Navigation.prototype.newTab = function (url, options) {
     } else {
         $('#nav-body-tabs').append(tab);
     }
-    // add webview    
-    let composedWebviewTag = `<webview class="nav-views-view active" data-session="${this.SESSION_ID}" src="${this._purifyUrl(url)}"`;
-    
+    // add webview
+    let composedWebviewTag = `<webview class="nav-views-view active" data-session="${this.SESSION_ID}" src="${await this._purifyUrl(url)}"`;
+
     composedWebviewTag += ` data-readonly="${((options.readonlyUrl) ? 'true': 'false')}"`;
     if (options.id) {
         composedWebviewTag += ` id=${options.id}`;
@@ -494,12 +514,12 @@ Navigation.prototype.newTab = function (url, options) {
             composedWebviewTag += ` ${key}="${options.webviewAttributes[key]}"`;
         });
     }
-    $('#nav-body-views').append(`${composedWebviewTag}></webview>`);    
+    $('#nav-body-views').append(`${composedWebviewTag}></webview>`);
     // enable reload button
     $('#nav-ctrls-reload').removeClass('disabled');
 
     // update url and add events
-    this._updateUrl(this._purifyUrl(url));
+    this._updateUrl(await this._purifyUrl(url));
     let newWebview = this._addEvents(this.SESSION_ID++, options);
     if(typeof options.postTabOpenCallback === "function"){
         options.postTabOpenCallback(newWebview)
@@ -511,13 +531,13 @@ Navigation.prototype.newTab = function (url, options) {
 //
 // change current or specified tab and view
 //
-Navigation.prototype.changeTab = function (url, id) {
+Navigation.prototype.changeTab = async function (url, id) {
     id = id || null;
     if (id == null) {
-        $('.nav-views-view.active').attr('src', this._purifyUrl(url));
+      $('.nav-views-view.active').attr('src', await this._purifyUrl(url));
     } else {
         if ($('#' + id).length) {
-            $('#' + id).attr('src', this._purifyUrl(url));
+          $('#' + id).attr('src', await this._purifyUrl(url));
         } else {
             console.log('ERROR[electron-navigation][func "changeTab();"]: Cannot find the ID "' + id + '"');
         }
@@ -765,16 +785,6 @@ Navigation.prototype.goToTab = function (index) {
         this._updateCtrls();
     }
 } //:goToTab()
-// go to a tab by id of the webview tag
-Navigation.prototype.goToTabByWebviewId = function(id){
-    const webviews = document.querySelectorAll("webview.nav-views-view");
-    for(let index in webviews){
-        if(webviews[index].id == id){
-            this.goToTab(+index + 1);
-            return;
-        }
-    }
-} //:goToTabByWebviewId()
 /**
  * MODULE EXPORTS
  */
