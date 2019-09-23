@@ -22,8 +22,9 @@
 var $ = require('jquery');
 var Color = require('color.js');
 var urlRegex = require('url-regex');
-const contextMenu = require('electron-context-menu')
+const contextMenu = require('electron-context-menu');
 var globalCloseableTabsOverride;
+
 /**
  * OBJECT
  */
@@ -108,7 +109,7 @@ function Navigation(options) {
 
         var session = $('.nav-views-view[data-session="' + sessionID + '"]')[0];
         (NAV.changeTabCallback || (() => {}))(session);
-        NAV._updateUrl(session.getURL());
+        NAV._updateUrl();
         NAV._updateCtrls();
 
         //
@@ -280,15 +281,16 @@ $('#nav-ctrls-url').keyup(function (e) {
             ok(url);
         } else {
           if(url.slice(0, 7) == 'tbtc://') {
-            const newURL = await NAV.getSrc(url);
-            ok(newURL);
+            ok(url);
+          }
+          if(url.slice(0, 8) == 'file:///') {
+            ok(url);
           }
             url = (!url.match(/^[a-zA-Z]+:\/\//)) ? 'https://www.google.com/search?q=' + url.replace(' ', '+') : url;
             ok(url);
         }
       });
     }
-
 
     //
     // set the color of the tab based on the favicon
@@ -344,17 +346,30 @@ $('#nav-ctrls-url').keyup(function (e) {
             $('.nav-views-view.active').siblings().not('script').show();
             $('.nav-views-view.active').parents().siblings().not('script').show();
         });
-        webview.on('load-commit', function () {
+        webview.on('load-commit', function (res) {
             NAV._updateCtrls();
+
+            const tbtcURL = $('#nav-ctrls-url').val();
+
+            if(tbtcURL.slice(0, 7) == 'tbtc://') {
+              webview.attr('data-fake', '');
+              let history = webview.attr('data-json');
+              history = JSON.parse(history);
+              if(history.urls[history.urls.length - 1][0] != tbtcURL) {
+                history.urls.push([tbtcURL, webview[0].getURL()]);
+                webview.attr('data-json', JSON.stringify(history));
+              }
+            }
+            NAV._updateUrl();
         });
         webview[0].addEventListener('did-navigate', (res) => {
-            NAV._updateUrl(res.url);
+            NAV._updateUrl();
         });
         webview[0].addEventListener('did-fail-load', (res) => {
             NAV._updateUrl(res.validatedUrl);
         });
         webview[0].addEventListener('did-navigate-in-page', (res) => {
-            NAV._updateUrl(res.url);
+          NAV._updateUrl();
         });
         webview[0].addEventListener("new-window", (res) => {
             if (!(options.newWindowFrameNameBlacklistExpression instanceof RegExp && options.newWindowFrameNameBlacklistExpression.test(res.frameName))) {
@@ -386,13 +401,14 @@ $('#nav-ctrls-url').keyup(function (e) {
             }
         });
         webview[0].addEventListener("will-navigate", async (event) => {
-            const url = event.url;
-            if(url.slice(0, 7) == 'tbtc://') {
-              webview[0].stop();
-              const newURL = await NAV.getSrc(url);
-              webview[0].src = newURL;
-            }
+          webview[0].stop();
+          const url = event.url;
+          NAV.changeTab(url);
+          if (url.slice(0, 7) == 'tbtc://') {
+            webview.attr('data-fake', url);
+          }
         });
+
         return webview[0];
     } //:_addEvents()
     //
@@ -403,7 +419,27 @@ $('#nav-ctrls-url').keyup(function (e) {
         urlInput = $('#nav-ctrls-url');
         if (url == null) {
             if ($('.nav-views-view').length) {
-                url = $('.nav-views-view.active')[0].getURL();
+              url = $('.nav-views-view.active')[0].getURL();
+
+              if(url.slice(0, 21) == 'data:text/html;base64') {
+
+                if($('.nav-views-view.active').attr('data-fake')) {
+                  url = $('.nav-views-view.active').attr('data-fake');
+                }
+                else {
+                  let history = $('.nav-views-view.active').attr('data-json');
+                  history = JSON.parse(history);
+
+                  for(let i = 0; i < history.urls.length; i++) {
+                    if(url == history.urls[i][1]) {
+                      url = history.urls[i][0];
+                      break;
+                    }
+                  }
+
+                }
+
+              }
             } else {
                 url = '';
             }
@@ -500,7 +536,13 @@ Navigation.prototype.newTab = async function (url, options) {
         $('#nav-body-tabs').append(tab);
     }
     // add webview
-    let composedWebviewTag = `<webview class="nav-views-view active" data-session="${this.SESSION_ID}" src="${await this._purifyUrl(url)}"`;
+    let composedWebviewTag = '';
+    if(url.slice(0, 7) == 'tbtc://') {
+      composedWebviewTag = `<webview class="nav-views-view active" data-json='{"urls": [[0, 0]]}' data-fake="" src="${await this.getSrc(url)}" data-session="${this.SESSION_ID}"`;
+    }
+    else {
+      composedWebviewTag = `<webview class="nav-views-view active" data-json='{"urls": [[0, 0]]}' data-fake="" src="${await this._purifyUrl(url)}" data-session="${this.SESSION_ID}"`;
+    }
 
     composedWebviewTag += ` data-readonly="${((options.readonlyUrl) ? 'true': 'false')}"`;
     if (options.id) {
@@ -534,10 +576,23 @@ Navigation.prototype.newTab = async function (url, options) {
 Navigation.prototype.changeTab = async function (url, id) {
     id = id || null;
     if (id == null) {
-      $('.nav-views-view.active').attr('src', await this._purifyUrl(url));
+
+      if(url.slice(0, 7) == 'tbtc://') {
+        $('.nav-views-view.active').attr('data-fake', await this._purifyUrl(url));
+        $('.nav-views-view.active').attr('src', await this.getSrc(url));
+      }
+      else {
+        $('.nav-views-view.active').attr('src', await this._purifyUrl(url));
+      }
     } else {
         if ($('#' + id).length) {
-          $('#' + id).attr('src', await this._purifyUrl(url));
+          if(url.slice(0, 7) == 'tbtc://') {
+            $('#' + id).attr('data-fake', await this._purifyUrl(url));
+            $('#' + id).attr('src', await this.getSrc(url));
+          }
+          else {
+            $('#' + id).attr('src', await this._purifyUrl(url));
+          }
         } else {
             console.log('ERROR[electron-navigation][func "changeTab();"]: Cannot find the ID "' + id + '"');
         }
