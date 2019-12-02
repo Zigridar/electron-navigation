@@ -1,6 +1,6 @@
 {
   "name": "electron-navigation2",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "The electron browser for \"tbtc://\" requests",
   "main": "index.js",
   "dependencies": {
