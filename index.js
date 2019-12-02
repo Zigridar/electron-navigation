@@ -86,7 +86,8 @@ function Navigation(options) {
     if (options.showUrlBar) {
         $('#nav-body-ctrls').append('<input id="nav-ctrls-url" type="text" title="Enter an address or search term"/>');
         $('#nav-body-ctrls').append('<i id="nav-ctrls-savebookmark" class="nav-icons disabled" title="Save bookmark">' + this.SVG_SAVE_BOOKMARK + '</i>');
-        $('#nav-body-ctrls').append('<div class="dropdown"><i id="nav-ctrls-bookmarks" class="nav-icons disabled" data-toggle="dropdown">' + this.SVG_BOOKMARKS + '</i><div class="dropdown-menu" id="dropMenu"></div></div>');
+        $('#nav-body-ctrls').append('<a class="dropdown-trigger" href="#" data-target="dropMenu"><i id="nav-ctrls-bookmarks" class="nav-icons disabled">' + this.SVG_BOOKMARKS + '</i></a>');
+        $('#nav-body-ctrls').append('<ul id="dropMenu" class="dropdown-content"></ul>');
     }
     if (options.showAddTabButton) {
         $('#nav-body-tabs').append('<i id="nav-tabs-add" class="nav-icons" title="Add new tab">' + this.SVG_ADD + '</i>');
@@ -108,6 +109,7 @@ function Navigation(options) {
     }
 
     Bookmark.prototype.createTagLink = function() {
+      let li = document.createElement('li');
       let a = document.createElement('a');
       a.href = this.url;
       a.textContent = this.title;
@@ -116,7 +118,8 @@ function Navigation(options) {
       favimage.src = this.icon;
       favimage.className = 'bookimg';
       a.insertBefore(favimage, a.childNodes[0]);
-      return a;
+      li.insertBefore(a, li.childNodes[0]);
+      return li;
     }
 
     const addBookmark = function() {
